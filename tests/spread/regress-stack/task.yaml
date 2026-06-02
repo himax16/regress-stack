@@ -64,9 +64,7 @@ prepare: |
     chown -R $LOGNAME:$LOGNAME $SPREAD_PATH
   fi
   apt-get update
-
-  (set +o pipefail; apt-get -y install $PACKAGES |& tee packages.log || (grep -Pzo '(?s)rabbitmq-server\nneedrestart is being skipped since dpkg has failed' packages.log && systemctl status rabbitmq-server && cat /var/log/rabbitmq/*.log && systemctl restart rabbitmq-server && dpkg-reconfigure rabbitmq-server))
-  apt-get -f install
+  apt-get -y install $PACKAGES
 
   # Install regress-stack dependencies
   apt-get install -yq python3-pyroute2
@@ -74,10 +72,24 @@ prepare: |
   # Install packages declared by all modules.
   pushd $SPREAD_PATH/src
   if [ "${TEMPEST_SOURCE:-apt}" = snap ]; then
-    apt install -y $(python3 -m regress_stack packages --no-tempest)
+    MODULEPACKAGES=$(python3 -m regress_stack packages --no-tempest)
   else
-    apt install -y $(python3 -m regress_stack packages)
+    MODULEPACKAGES=$(python3 -m regress_stack packages)
   fi
+
+  # Ensure that rabbitmq-server is running
+  (
+    set +o pipefail
+    apt-get install -y $MODULE_PACKAGES |& tee module-packages.log || (
+      grep -Pzo '(?s)rabbitmq-server\nneedrestart is being skipped since dpkg has failed' module-packages.log &&
+      systemctl status rabbitmq-server &&
+      cat /var/log/rabbitmq/*.log &&
+      systemctl restart rabbitmq-server &&
+      dpkg-reconfigure rabbitmq-server
+    )
+  )
+  apt-get -f install
+
   popd
 
   output=$(realpath ./prepare-output.txt)
